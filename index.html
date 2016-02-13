@@ -37,13 +37,11 @@
   			width: 430px;
   		}
   		.select.left {
-  			left: 0px;
+  			left: 15px;
   			position: relative;
   			margin: 10px 0;
   		}
   		.select.right {
-  			margin-left: 187px;
-  			margin: 10px 0;
   			display: inline-block;
   			position: relative;
   			width: 300px;
@@ -66,17 +64,26 @@
 		            time_sequence: []
 		        };
 		        for (var i = 0; i < events.length; i++) {
-		            if (events[i].name == params.end_event && !state.done) {
+		            if (!params.start_event) {
+		                state.active = true;
+		            }
+		            else if (params.start_event == events[i].name) {
+		                state.active = true;
+		            }
+		            if (state.active && events[i].name == params.end_event && !state.done) {
 		                state.event_sequence.push(events[i].name);
 		                state.time_sequence.push(events[i].time);
 		                state.done = true;
+		                if (params.property) {
+                    		state.propval = events[i].properties[params.property];
+                		}
 		            }
-		            else if (!state.done) {
+		            else if (!state.done && state.active) {
 		                state.event_sequence.push(events[i].name);
 		                state.time_sequence.push(events[i].time);
-		            }
-		            if (params.property) {
-		                state.propval = events[i].properties[params.property];
+		                if (params.property) {
+		                    state.propval = events[i].properties[params.property];
+		                }
 		            }
 		        }
 		        return state;
@@ -102,7 +109,7 @@
 		            obj.group = item.value.propval;
 		        }
 		        else {
-		            obj.group = 'No Property';
+		            obj.group = 'Overall';
 		        }
 		        return obj;
 		    })
@@ -152,10 +159,16 @@
       </div>
       <div class="dropdown-section">
       	<div class="select left">
+      		<div class="dropdown-label">Start Event:</div>
+      		<div id="startEventSelect"></div>
+      	</div>
+      	<div class="select right">
       		<div class="dropdown-label">End Event:</div>
       		<div id="eventSelect"></div>
       	</div>
-      	<div class="select right">
+      </div>
+      <div class="dropdown-section">
+      	<div class="select left">
       		<div class="dropdown-label">Property:</div>
       		<div id="propSelect"></div>
       	</div>
@@ -228,6 +241,7 @@
 		 }]
 		});
 		max_results.val(10);
+		var start_event = $('#startEventSelect').MPEventSelect();
 		var finish_event = $('#eventSelect').MPEventSelect();
 		var property = $('#propSelect').MPPropertySelect();
 		property.MPPropertySelect('setEvent');
@@ -238,10 +252,11 @@
 			var event_count = min_sequence_length.MPSelect('value');
 			var conversion_length = time_length.MPSelect('value') * time_unit.MPSelect('value');
 			var num_results = max_results.MPSelect('value');
+			var begin_event = start_event.MPEventSelect('value');
 			var end_event = finish_event.MPEventSelect('value');
 			var prop = property.MPPropertySelect('value');
-			$('.select_button:not(#eventSelect > .select_button, #propSelect > .select_button)').addClass('small');
-			$('.select_menu:not(#eventSelect > .select_menu, #propSelect > .select_menu)').addClass('small');
+			$('.select_button:not(#eventSelect > .select_button, #propSelect > .select_button, #startEventSelect > .select_button)').addClass('small');
+			$('.select_menu:not(#eventSelect > .select_menu, #propSelect > .select_menu, #startEventSelect > .select_menu)').addClass('small');
 			$('#numResultsSelect, #minLengthSelect, #timeSelect, #unitSelect').css({'display': 'inline-block', 'max-width': '50px'})
 			var params = {
 			    'from_date': from_date,
@@ -249,6 +264,7 @@
 			    'event_count': event_count,
 			    'conversion_length': conversion_length,
 			    'num_results': num_results,
+			    'start_event': begin_event,
 			    'end_event': end_event,
 			    'property': prop
 			};
@@ -290,8 +306,10 @@
 		max_results.on('change', function(e, selection) {
 		 runQuery();
 		});
+	    start_event.on('change', function(e, selection) {
+		 runQuery();
+		});
 		finish_event.on('change', function(e, selection) {
-		 property.MPPropertySelect('setEvent', finish_event.MPEventSelect('value'));
 		 runQuery();
 		});
 		property.on('change', function(e, selection) {
