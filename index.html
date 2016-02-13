@@ -64,74 +64,70 @@
 		            time_sequence: []
 		        };
 		        for (var i = 0; i < events.length; i++) {
-		            if (!params.start_event) {
+		            if (!params.start_event || params.start_event == events[i].name) {
 		                state.active = true;
 		            }
-		            else if (params.start_event == events[i].name) {
-		                state.active = true;
-		            }
-		            if (state.active && events[i].name == params.end_event && !state.done) {
+		            if (state.active && !state.done) {
 		                state.event_sequence.push(events[i].name);
 		                state.time_sequence.push(events[i].time);
-		                state.done = true;
-		                if (params.property) {
-                    		state.propval = events[i].properties[params.property];
-                		}
-		            }
-		            else if (!state.done && state.active) {
-		                state.event_sequence.push(events[i].name);
-		                state.time_sequence.push(events[i].time);
-		                if (params.property) {
-		                    state.propval = events[i].properties[params.property];
-		                }
+		                state.propval = events[i].properties[params.property];
+		                state.done = events[i].name == params.end_event;
 		            }
 		        }
 		        return state;
 		    })
 		    .filter(function(item) {
-		        if (params.end_event) {
-		            return item.value.done;
-		        }
-		        else
-		            return item;
+		        return params.end_event? item.value.done && item.value.active : item;
 		    })
 		    .map(function(item) {
-		        var end_time = item.value.time_sequence[item.value.time_sequence.length - 1];
-		        var updated_sequence = [];
-		        for (var i = 0; i < item.value.time_sequence.length; i++) {
+		        var end_time = item.value.time_sequence[item.value.time_sequence.length - 1], truncated_sequence = [], i;
+		        for (i = 0; i < item.value.time_sequence.length; i++) {
 		            if (end_time - item.value.time_sequence[i] < params.conversion_length) {
-		                updated_sequence.push(item.value.event_sequence[i]);
+		                truncated_sequence.push(item.value.event_sequence[i]);
 		            }
 		        }
-		        var obj = {};
-		        obj.sequence = updated_sequence;
-		        if (item.value.propval) {
-		            obj.group = item.value.propval;
-		        }
-		        else {
-		            obj.group = 'Overall';
-		        }
-		        return obj;
+		        return {sequence: truncated_sequence,
+		                group: item.value.propval? item.value.propval : 'Overall'};
 		    })
-		    .filter(function(item) {return item.sequence.length >= params.event_count;})
+		    .filter(function(item) {
+		        return !((params.start_event && item.sequence[0] != params.start_event)
+		               ||(params.end_event && item.sequence[item.sequence.length - 1] != params.end_event)
+		               ||(item.sequence.length < params.event_count))
+		    })
 		    .groupBy([function(item) {return item.sequence;}, function(item) {return item.group;}], mixpanel.reducer.count())
 		    .groupBy([function(item) {return item.key[item.key.length - 1];}], mixpanel.reducer.top(params.num_results))
 		    .map(function(item) {
-		        var val = [];
-		        var seq = [];
-		        for (var i = 0; i < item.value.length; i++) {
-		            for (var j = 0; j < item.value[i].key.length - 1; j++) {
+		        var val = [], seq = [], i, j;
+		        for (i = 0; i < item.value.length; i++) {
+		            for (j = 0; j < item.value[i].key.length - 1; j++) {
 		                seq.push(item.value[i].key[j]);
 		            }
-		            val.push({
-		                count: item.value[i].value,
-		                sequence: seq
-		            });
+		            val.push({count: item.value[i].value,
+		                      sequence: seq});
 		            seq = [];
 		        }
-		        return {key: item.key,
+		        return {key: item.key[0],
 		                value: val};
-		    });
+		    })
+		    .reduce(function(accums, items) {
+		        var results = [], i, j;
+		        for (i = 0; i < params.num_results; i++) {
+		            results.push({});
+		        }
+		        for (i = 0; i < accums.length; i++) {
+		            for (j = 0; j < accums[i].length; j++) {
+		                for (var key in accums[i][j]) {
+		                    results[j][key] = accums[i][j][key];
+		                }
+		            }
+		        }
+		        for (i = 0; i < items.length; i++) {
+		            for (j = 0; j < params.num_results; j++) {
+		                results[j][items[i].key] = items[i].value[j]? (items[i].value[j].count + ': ' + items[i].value[j].sequence) : 'no flow';
+		            }
+		        }
+		        return results;
+		    })
 		}
     </script>
   	<div class="mixpanel-platform-section">
@@ -177,115 +173,43 @@
     <div id="table"></div>
     <script>
 		var script = document.getElementById('query').innerHTML;
-		var eventTable = $('#table').MPTable({
-		 showPercentages: false,
-		 firstColHeader: 'Rank'
-		});
+		var eventTable = $('#table').MPTable({showPercentages: false, firstColHeader: 'Rank'});
 		var dateSelect = $('#dateSelect').MPDatepicker();
-		var items = [];
-		for (var i = 0; i < 30; i++) {
-			items.push({label: (i+1).toString(), value: (i+1)});
+		function items() {
+			return item_list = _.map(arguments, function(item) {return {label: String(item), value: item};})
 		}
-		var time_length = $('#timeSelect').MPSelect({items: items});
-		var time_unit = $('#unitSelect').MPSelect({
-		 items: [{
-		     label: 'hours',
-		     value: 3600000
-		 }, {
-		     label: 'days',
-		     value: 86400000
-		 }, {
-		     label: 'weeks',
-		     value: 604800000
-		 }, {
-		     label: 'months',
-		     value: 2592000000
-		 }]
-		});
+		var time_length = $('#timeSelect').MPSelect({items: items(1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30)});
+		var time_unit = $('#unitSelect').MPSelect({items:[{label:'hours',value:3600000},{label:'days',value:86400000},{label:'weeks',value:604800000},{label:'months',value:2592000000}]});
 		time_unit.val(86400000);
-		var min_sequence_length = $('#minLengthSelect').MPSelect({
-		 items: [{
-		     label: '1',
-		     value: 1
-		 }, {
-		     label: '2',
-		     value: 2
-		 }, {
-		     label: '3',
-		     value: 3
-		 }, {
-		     label: '4',
-		     value: 4
-		 }, {
-		     label: '5',
-		     value: 5
-		 }]
-		});
+		var min_sequence_length = $('#minLengthSelect').MPSelect({items: items(1,2,3,4,5)});
 		min_sequence_length.val(2);
-		var max_results = $('#numResultsSelect').MPSelect({
-		 items: [{
-		     label: '5',
-		     value: 5
-		 }, {
-		     label: '10',
-		     value: 10
-		 }, {
-		     label: '20',
-		     value: 20
-		 }, {
-		     label: '50',
-		     value: 50
-		 }, {
-		     label: '100',
-		     value: 100
-		 }]
-		});
+		var max_results = $('#numResultsSelect').MPSelect({items: items(2, 5, 10, 15, 50)});
 		max_results.val(10);
 		var start_event = $('#startEventSelect').MPEventSelect();
 		var finish_event = $('#eventSelect').MPEventSelect();
 		var property = $('#propSelect').MPPropertySelect();
 		property.MPPropertySelect('setEvent');
-
 		function runQuery() {
-			var from_date = dateSelect.MPDatepicker('value').from.toISOString().slice(0, -14);
-			var to_date = dateSelect.MPDatepicker('value').to.toISOString().slice(0, -14);
-			var event_count = min_sequence_length.MPSelect('value');
-			var conversion_length = time_length.MPSelect('value') * time_unit.MPSelect('value');
-			var num_results = max_results.MPSelect('value');
-			var begin_event = start_event.MPEventSelect('value');
-			var end_event = finish_event.MPEventSelect('value');
-			var prop = property.MPPropertySelect('value');
 			$('.select_button:not(#eventSelect > .select_button, #propSelect > .select_button, #startEventSelect > .select_button)').addClass('small');
 			$('.select_menu:not(#eventSelect > .select_menu, #propSelect > .select_menu, #startEventSelect > .select_menu)').addClass('small');
 			$('#numResultsSelect, #minLengthSelect, #timeSelect, #unitSelect').css({'display': 'inline-block', 'max-width': '50px'})
 			var params = {
-			    'from_date': from_date,
-			    'to_date': to_date,
-			    'event_count': event_count,
-			    'conversion_length': conversion_length,
-			    'num_results': num_results,
-			    'start_event': begin_event,
-			    'end_event': end_event,
-			    'property': prop
+			    'from_date': dateSelect.MPDatepicker('value').from.toISOString().slice(0, -14),
+			    'to_date': dateSelect.MPDatepicker('value').to.toISOString().slice(0, -14),
+			    'event_count': min_sequence_length.MPSelect('value'),
+			    'conversion_length': time_length.MPSelect('value') * time_unit.MPSelect('value'),
+			    'num_results': max_results.MPSelect('value'),
+			    'start_event': start_event.MPEventSelect('value'),
+			    'end_event': finish_event.MPEventSelect('value'),
+			    'property': property.MPPropertySelect('value')
 			};
 			MP.api.custom_query(script, params).done(function(results) {
-			 	console.log(results);
-			    var res = ['this is a placeholder to delete because MPTable displays the indexes for some reason'];
+			    debugger;
+			    var res = [];
 			    if (results.length > 0) {
-			        for (var i = 0; i < num_results; i++) {
-			        	var obj = {};
-			            for (var j = 0; j < results.length; j++) {
-			             	if (results[j].value[i]) {
-			             		obj[results[j].key[0]] = results[j].value[i].count + ': ' + results[j].value[i].sequence.toString();
-			             	}
-			             	else {
-			             		obj[results[j].key[0]] = 'no more flows';
-			             	}
-			            }
-			            res.push(obj);
-			            obj = {};
-			        }
+			        res = _.map(results[0], function(item) {return item})
 			    }
+			    res.unshift('');
 			    delete res[0];
 			    eventTable.MPTable('setData', res);
 			});
